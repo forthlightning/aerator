@@ -1,6 +1,11 @@
 #include <Wire.h>
 #include "Adafruit_SGP30.h"
+#include "DHT.h"
 
+#define DHTPIN 26     // what pin we're connected to
+#define DHTTYPE DHT22   // DHT 22  (AM2302)
+
+DHT dht(DHTPIN, DHTTYPE);
 Adafruit_SGP30 sgp;
 
 /* return absolute humidity [mg/m^3] with approximation formula
@@ -29,16 +34,35 @@ void setup() {
   Serial.print(sgp.serialnumber[1], HEX);
   Serial.println(sgp.serialnumber[2], HEX);
 
-  // If you have a baseline measurement from before you can assign it to start, to 'self-calibrate'
-  //sgp.setIAQBaseline(0x8E68, 0x8F41);  // Will vary for each sensor!
+  Wire.begin();
+  dht.begin();
 }
 
+
 int counter = 0;
+
 void loop() {
-  // If you have a temperature / humidity sensor, you can set the absolute humidity to enable the humditiy compensation for the air quality signals
-  //float temperature = 22.1; // [°C]
-  //float humidity = 45.2; // [%RH]
-  //sgp.setHumidity(getAbsoluteHumidity(temperature, humidity));
+
+  float temp_hum_val[2] = {0};
+  
+  if(!dht.readTempAndHumidity(temp_hum_val)){
+    Serial.print("Humidity: "); 
+    Serial.print(temp_hum_val[0]);
+    Serial.print(" %\t");
+    Serial.print("Temperature: "); 
+    Serial.print(temp_hum_val[1]);
+    Serial.println(" *C");
+
+    // If you have a temperature / humidity sensor, you can set the absolute humidity to enable the humditiy compensation for the air quality signals
+    float temperature = temp_hum_val[0]; // [C]
+    float humidity = temp_hum_val[1]; // [%RH]
+    sgp.setHumidity(getAbsoluteHumidity(temperature, humidity));
+  }
+  else{
+     Serial.println("Failed to get temprature and humidity value.");
+  }
+
+
 
   if (! sgp.IAQmeasure()) {
     Serial.println("Measurement failed");
