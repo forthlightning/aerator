@@ -18,15 +18,18 @@ Adafruit_SGP30 sgp;
 
 #define MQTT_PUBLISH_DELAY 15000
 
-const char* ssid = "SnackSection";
+const char* ssid = "SnackSection-2G";
 const char* password = "BernardSaunders9001";
-const char* mqtt_server = "MQTT_BROKER_ADDRESS";
+const char* mqtt_server = "192.168.0.27";
 
-WiFiClient espClient;
-PubSubClient client(espClient);
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
 long lastMsg = 0;
 char msg[50];
 int value = 0;
+
+float humidity = 0;
+float temperature = 0;
 
 
 /* return absolute humidity [mg/m^3] with approximation formula
@@ -59,8 +62,8 @@ void setup() {
   dht.begin(); // todo error check this
 
   init_wifi();
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(mqtt_callback);
+  mqttClient.setServer(mqtt_server, 1883);
+  mqttClient.setCallback(mqtt_callback);
 }
 
 void init_wifi() {
@@ -96,31 +99,31 @@ void mqtt_callback(char* topic, byte* message, unsigned int length) {
   // Feel free to add more if statements to control more GPIOs with MQTT
   // If a message is received on the topic esp32/output, you check if the message is either "on" or "off". 
   // Changes the output state according to the message
-  if (String(topic) == "esp32/output") {
-    Serial.print("Changing output to ");
-    if(messageTemp == "on"){
-      Serial.println("on");
-      digitalWrite(ledPin, HIGH);
-    }
-    else if(messageTemp == "off"){
-      Serial.println("off");
-      digitalWrite(ledPin, LOW);
-    }
-  }
+//  if (String(topic) == "esp32/output") {
+//    Serial.print("Changing output to ");
+//    if(messageTemp == "on"){
+//      Serial.println("on");
+//      digitalWrite(ledPin, HIGH);
+//    }
+//    else if(messageTemp == "off"){
+//      Serial.println("off");
+//      digitalWrite(ledPin, LOW);
+//    }
+//  }
 }
 
 void reconnect() {
   // Loop until we're reconnected
-  while (!client.connected()) {
+  while (!mqttClient.connected()) {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
-    if (client.connect("ESP8266Client")) {
+    if (mqttClient.connect("ESP8266Client")) {
       Serial.println("connected");
       // Subscribe
-      client.subscribe("esp32/output");
+      mqttClient.subscribe("esp32/output");
     } else {
       Serial.print("failed, rc=");
-      Serial.print(client.state());
+      Serial.print(mqttClient.state());
       Serial.println(" try again in 5 seconds");
       // Wait 5 seconds before retrying
       delay(5000);
@@ -139,10 +142,10 @@ void mqttPublish(char* topic, float payload) {
 
 void loop() {
 
-  if (!client.connected()) {
+  if (!mqttClient.connected()) {
     reconnect();
   }
-  client.loop();
+  mqttClient.loop();
 
   long now = millis();
   if (now - lastMsg > MQTT_PUBLISH_DELAY) {
@@ -152,7 +155,7 @@ void loop() {
     temperature = dht.readTemperature();
 
     if (isnan(humidity) || isnan(temperature)) {
-      Serial.println("DHT sensor not ready yet")
+      Serial.println("DHT sensor not ready yet");
       return;
     }
 
