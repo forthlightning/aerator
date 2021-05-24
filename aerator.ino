@@ -1,4 +1,7 @@
 #include <Wire.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+
 #include "Adafruit_SGP30.h"
 #include "DHT.h"
 
@@ -7,6 +10,17 @@
 
 DHT dht(DHTPIN, DHTTYPE);
 Adafruit_SGP30 sgp;
+
+const char* ssid = "SnackSection";
+const char* password = "BernardSaunders9001";
+const char* mqtt_server = "MQTT_BROKER_ADDRESS";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+long lastMsg = 0;
+char msg[50];
+int value = 0;
+
 
 /* return absolute humidity [mg/m^3] with approximation formula
 * @param temperature [°C]
@@ -35,7 +49,19 @@ void setup() {
   Serial.println(sgp.serialnumber[2], HEX);
 
   Wire.begin();
-  dht.begin();
+  dht.begin(); // todo error check this
+
+  init_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(mqtt_callback);
+}
+
+void init_wifi() {
+  delay(10);
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
 }
 
 
