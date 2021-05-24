@@ -11,6 +11,13 @@
 DHT dht(DHTPIN, DHTTYPE);
 Adafruit_SGP30 sgp;
 
+#define MQTT_TOPIC_TEMPERATURE "aerator/dht22/temperature"
+#define MQTT_TOPIC_HUMIDITY "aerator/dht22/humidity"
+#define MQTT_TOPIC_TVOC "aerator/sgp30/tvoc"
+#define MQTT_TOPIC_ECO2 "aerator/sgp30/eco2"
+
+#define MQTT_PUBLISH_DELAY 15000
+
 const char* ssid = "SnackSection";
 const char* password = "BernardSaunders9001";
 const char* mqtt_server = "MQTT_BROKER_ADDRESS";
@@ -62,60 +69,108 @@ void init_wifi() {
   Serial.println(ssid);
 
   WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void mqtt_callback(char* topic, byte* message, unsigned int length) {
+  Serial.print("Message arrived on topic: ");
+  Serial.print(topic);
+  Serial.print(". Message: ");
+  String messageTemp;
+  
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)message[i]);
+    messageTemp += (char)message[i];
+  }
+  Serial.println();
+
+  // Feel free to add more if statements to control more GPIOs with MQTT
+  // If a message is received on the topic esp32/output, you check if the message is either "on" or "off". 
+  // Changes the output state according to the message
+  if (String(topic) == "esp32/output") {
+    Serial.print("Changing output to ");
+    if(messageTemp == "on"){
+      Serial.println("on");
+      digitalWrite(ledPin, HIGH);
+    }
+    else if(messageTemp == "off"){
+      Serial.println("off");
+      digitalWrite(ledPin, LOW);
+    }
+  }
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect("ESP8266Client")) {
+      Serial.println("connected");
+      // Subscribe
+      client.subscribe("esp32/output");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+void mqttPublish(char* topic, float payload) {
+  Serial.print(topic);
+  Serial.print(": ");
+  Serial.println(payload);
+
+  mqttClient.publish(topic, String(payload).c_str(), true);
 }
 
 
-int counter = 0;
-
 void loop() {
 
-  float temp_hum_val[2] = {0};
-  
-  if(!dht.readTempAndHumidity(temp_hum_val)){
-    Serial.print("Humidity: "); 
-    Serial.print(temp_hum_val[0]);
-    Serial.print(" %\t");
-    Serial.print("Temperature: "); 
-    Serial.print(temp_hum_val[1]);
-    Serial.println(" *C");
-
-    // If you have a temperature / humidity sensor, you can set the absolute humidity to enable the humditiy compensation for the air quality signals
-    float temperature = temp_hum_val[0]; // [C]
-    float humidity = temp_hum_val[1]; // [%RH]
-    sgp.setHumidity(getAbsoluteHumidity(temperature, humidity));
+  if (!client.connected()) {
+    reconnect();
   }
-  else{
-     Serial.println("Failed to get temprature and humidity value.");
-  }
+  client.loop();
 
+  long now = millis();
+  if (now - lastMsg > MQTT_PUBLISH_DELAY) {
+    lastMsg = now;
 
+    humidity = dht.readHumidity();
+    temperature = dht.readTemperature();
 
-  if (! sgp.IAQmeasure()) {
-    Serial.println("Measurement failed");
-    return;
-  }
-  Serial.print("TVOC "); Serial.print(sgp.TVOC); Serial.print(" ppb\t");
-  Serial.print("eCO2 "); Serial.print(sgp.eCO2); Serial.println(" ppm");
-
-  if (! sgp.IAQmeasureRaw()) {
-    Serial.println("Raw Measurement failed");
-    return;
-  }
-  Serial.print("Raw H2 "); Serial.print(sgp.rawH2); Serial.print(" \t");
-  Serial.print("Raw Ethanol "); Serial.print(sgp.rawEthanol); Serial.println("");
- 
-  delay(1000);
-
-  counter++;
-  if (counter == 30) {
-    counter = 0;
-
-    uint16_t TVOC_base, eCO2_base;
-    if (! sgp.getIAQBaseline(&eCO2_base, &TVOC_base)) {
-      Serial.println("Failed to get baseline readings");
+    if (isnan(humidity) || isnan(temperature)) {
+      Serial.println("DHT sensor not ready yet")
       return;
     }
-    Serial.print("****Baseline values: eCO2: 0x"); Serial.print(eCO2_base, HEX);
-    Serial.print(" & TVOC: 0x"); Serial.println(TVOC_base, HEX);
+
+    sgp.setHumidity(getAbsoluteHumidity(temperature, humidity)); // for more accurate gas values from sgp30
+
+    mqttPublish(MQTT_TOPIC_TEMPERATURE, temperature);
+    mqttPublish(MQTT_TOPIC_HUMIDITY, humidity);
+
+    if ( !sgp.IAQmeasure()) {
+      Serial.println("Measurement failed");
+      return;
+    }
+
+    // Serial.print("TVOC: "); Serial.print(sgp.TVOC); Serial.print(" ppb\t");
+    // Serial.print("eCO2: "); Serial.print(sgp.eCO2); Serial.println(" ppm");
+
+    mqttPublish(MQTT_TOPIC_TVOC, sgp.TVOC);
+    mqttPublish(MQTT_TOPIC_ECO2, sgp.eCO2);
+
   }
 }
